@@ -1,89 +1,63 @@
-# === CONFIGURATION ===
 $baseDir = "C:\Shared\Libs"
 $completedDir = "C:\Shared\Completed"
 $uaJar = "C:\Mend\unified-agent.jar"
 $configFile = "C:\Mend\wss-unified-agent.config"
 
-# === Ensure Completed Directory Exists ===
-if (!(Test-Path -Path $completedDir)) {
-    New-Item -ItemType Directory -Path $completedDir | Out-Null
-}
-
-# === Function to Recursively Extract ZIPs ===
 function Extract-Zips-InFolder {
     param (
         [string]$targetFolder
     )
 
     $zipFiles = Get-ChildItem -Path $targetFolder -Recurse -Filter *.zip -ErrorAction SilentlyContinue
-
     while ($zipFiles.Count -gt 0) {
         foreach ($zip in $zipFiles) {
-            $extractPath = Join-Path -Path $zip.Directory.FullName -ChildPath ($zip.BaseName + "_unzipped")
+            $extractPath = Join-Path $zip.Directory.FullName ($zip.BaseName + "_unzipped")
             try {
                 Expand-Archive -Path $zip.FullName -DestinationPath $extractPath -Force
-                Remove-Item -Path $zip.FullName -Force
-                Write-Host "✅ Extracted: $($zip.FullName)"
+                Remove-Item $zip.FullName -Force
+                Write-Host "Extracted: $($zip.FullName)"
             } catch {
-                Write-Host "⚠️ Failed to extract: $($zip.FullName)"
+                Write-Host "Failed to extract: $($zip.FullName)"
             }
         }
         $zipFiles = Get-ChildItem -Path $targetFolder -Recurse -Filter *.zip -ErrorAction SilentlyContinue
     }
 }
 
-# === Main Process ===
+if (!(Test-Path $completedDir)) {
+    New-Item -ItemType Directory -Path $completedDir | Out-Null
+}
+
 Get-ChildItem -Path $baseDir | ForEach-Object {
     $item = $_
     $itemName = $item.Name
     $itemPath = $item.FullName
     $workDir = ""
 
-    # === Case 1: ZIP File ===
     if ($item.Extension -eq ".zip") {
         $extractedFolderName = [System.IO.Path]::GetFileNameWithoutExtension($itemName)
-        $workDir = Join-Path -Path $baseDir -ChildPath $extractedFolderName
-
+        $workDir = Join-Path $baseDir $extractedFolderName
         Expand-Archive -Path $itemPath -DestinationPath $workDir -Force
-        Write-Host "📦 Unzipped top-level zip: $itemName"
-    }
-    # === Case 2: Folder ===
-    elseif ($item.PSIsContainer) {
+    } elseif ($item.PSIsContainer) {
         $workDir = $itemPath
-        Write-Host "📁 Found folder: $itemName"
     }
 
-    # === Process Extracted Content ===
     if (Test-Path $workDir) {
         Extract-Zips-InFolder -targetFolder $workDir
-
-        # === Run Mend UA Scan ===
-        Write-Host "🔍 Scanning: $workDir"
-        $scanCommand = "java -jar `"$uaJar`" -c `"$configFile`" -d `"$workDir`""
-        Invoke-Expression $scanCommand
+        java -jar $uaJar -c $configFile -d $workDir
 
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "✅ Scan successful. Moving to completed."
-
-            # Move original ZIP if applicable
             if ($item.Extension -eq ".zip") {
-                Move-Item -Path $itemPath -Destination (Join-Path $completedDir $itemName) -Force
-
-                $extractedFolderPath = Join-Path $baseDir ([System.IO.Path]::GetFileNameWithoutExtension($itemName))
-                if (Test-Path $extractedFolderPath) {
-                    Move-Item -Path $extractedFolderPath -Destination $completedDir -Force
+                Move-Item $itemPath -Destination (Join-Path $completedDir $itemName) -Force
+                $folderToMove = Join-Path $baseDir ([System.IO.Path]::GetFileNameWithoutExtension($itemName))
+                if (Test-Path $folderToMove) {
+                    Move-Item $folderToMove -Destination $completedDir -Force
                 }
+            } elseif ($item.PSIsContainer) {
+                Move-Item $itemPath -Destination $completedDir -Force
             }
-            # Move folder if item was already a folder
-            elseif ($item.PSIsContainer) {
-                Move-Item -Path $itemPath -Destination $completedDir -Force
-            }
-        } else {
-            Write-Host "❌ Scan failed for $itemName. Leaving in place."
         }
     }
-
-    Write-Host "----------------------------------`n"
 }
 
-Write-Host "🏁 All scans complete."
+Write-Host "All scans complete."
