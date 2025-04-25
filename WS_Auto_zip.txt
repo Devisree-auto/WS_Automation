@@ -6,7 +6,7 @@ $configFile = "C:\Mend\wss-unified-agent.config"
 
 # === Ensure Completed Directory Exists ===
 if (!(Test-Path -Path $completedDir)) {
-    New-Item -ItemType Directory -Path $completedDir
+    New-Item -ItemType Directory -Path $completedDir | Out-Null
 }
 
 # === Function to Recursively Extract ZIPs ===
@@ -43,6 +43,7 @@ Get-ChildItem -Path $baseDir | ForEach-Object {
     if ($item.Extension -eq ".zip") {
         $extractedFolderName = [System.IO.Path]::GetFileNameWithoutExtension($itemName)
         $workDir = Join-Path -Path $baseDir -ChildPath $extractedFolderName
+
         Expand-Archive -Path $itemPath -DestinationPath $workDir -Force
         Write-Host "📦 Unzipped top-level zip: $itemName"
     }
@@ -66,16 +67,16 @@ Get-ChildItem -Path $baseDir | ForEach-Object {
 
             # Move original ZIP if applicable
             if ($item.Extension -eq ".zip") {
-                Move-Item -Path $itemPath -Destination "$completedDir\$itemName"
+                Move-Item -Path $itemPath -Destination (Join-Path $completedDir $itemName) -Force
 
                 $extractedFolderPath = Join-Path $baseDir ([System.IO.Path]::GetFileNameWithoutExtension($itemName))
                 if (Test-Path $extractedFolderPath) {
-                    Move-Item -Path $extractedFolderPath -Destination "$completedDir\"
+                    Move-Item -Path $extractedFolderPath -Destination $completedDir -Force
                 }
             }
             # Move folder if item was already a folder
             elseif ($item.PSIsContainer) {
-                Move-Item -Path $itemPath -Destination "$completedDir\"
+                Move-Item -Path $itemPath -Destination $completedDir -Force
             }
         } else {
             Write-Host "❌ Scan failed for $itemName. Leaving in place."
