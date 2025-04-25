@@ -1,15 +1,15 @@
-# Configurable paths
+# === CONFIG ===
 $baseDir = "C:\Shared\Libs"
 $completedDir = "C:\Shared\Completed"
 $uaJar = "C:\Mend\unified-agent.jar"
 $configFile = "C:\Mend\wss-unified-agent.config"
 
-# Ensure completed folder exists
+# Ensure completed directory exists
 if (!(Test-Path -Path $completedDir)) {
     New-Item -ItemType Directory -Path $completedDir
 }
 
-# Function to recursively extract all ZIPs in a folder (in-place)
+# === Function to recursively extract zip files ===
 function Extract-Zips-InFolder {
     param (
         [string]$targetFolder
@@ -20,7 +20,6 @@ function Extract-Zips-InFolder {
     while ($zipFiles.Count -gt 0) {
         foreach ($zip in $zipFiles) {
             $extractPath = Join-Path -Path $zip.Directory.FullName -ChildPath ($zip.BaseName + "_unzipped")
-
             try {
                 Expand-Archive -Path $zip.FullName -DestinationPath $extractPath -Force
                 Remove-Item -Path $zip.FullName -Force
@@ -29,51 +28,36 @@ function Extract-Zips-InFolder {
                 Write-Host "⚠️ Failed to extract: $($zip.FullName)"
             }
         }
-        # Refresh list of ZIPs after extraction (in case of nested ones)
+
+        # Look again for new ZIPs after extracting
         $zipFiles = Get-ChildItem -Path $targetFolder -Recurse -Filter *.zip -ErrorAction SilentlyContinue
     }
 }
 
-# Main loop
-Get-ChildItem -Path $baseDir | ForEach-Object {
-    $item = $_
-    $itemName = $item.Name
-    $itemPath = $item.FullName
-    $workDir = ""
+# === Main Logic ===
+Get-ChildItem -Path $baseDir -Directory | ForEach-Object {
+    $folder = $_
+    $folderName = $folder.Name
+    $folderPath = $folder.FullName
 
-    if ($item.Extension -eq ".zip") {
-        # Expand top-level zip to its own folder (e.g., lib1.zip → lib1)
-        $workDir = Join-Path -Path $baseDir -ChildPath ([System.IO.Path]::GetFileNameWithoutExtension($itemName))
-        Expand-Archive -Path $itemPath -DestinationPath $workDir -Force
-        Write-Host "📦 Unzipped top-level zip: $itemName"
-    }
-    elseif ($item.PSIsContainer) {
-        # It's a regular folder
-        $workDir = $itemPath
-        Write-Host "📁 Found folder: $itemName"
-    }
+    Write-Host "`n📁 Processing folder: $folderName"
 
-    # Now recursively unzip any ZIPs inside the working folder
-    if (Test-Path $workDir) {
-        Extract-Zips-InFolder -targetFolder $workDir
+    # Step 1: Extract all nested zips inside this folder
+    Extract-Zips-InFolder -targetFolder $folderPath
 
-        # Run Mend UA scan
-        Write-Host "🔍 Running scan for $workDir"
-        $scanCommand = "java -jar `"$uaJar`" -c `"$configFile`" -d `"$workDir`""
-        Invoke-Expression $scanCommand
+    # Step 2: Run Mend UA scan
+    Write-Host "🔍 Scanning: $folderName"
+    $scanCommand = "java -jar `"$uaJar`" -c `"$configFile`" -d `"$folderPath`""
+    Invoke-Expression $scanCommand
 
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "✅ Scan successful. Moving to completed."
-            if ($item.Extension -eq ".zip") {
-                Move-Item -Path $itemPath -Destination "$completedDir\$itemName"
-            }
-            Move-Item -Path $workDir -Destination "$completedDir\"
-        } else {
-            Write-Host "❌ Scan failed for $itemName. Leaving in place."
-        }
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "✅ Scan successful. Moving $folderName to completed."
+        Move-Item -Path $folderPath -Destination (Join-Path $completedDir $folderName)
+    } else {
+        Write-Host "❌ Scan failed for $folderName. Leaving in place."
     }
 
-    Write-Host "----------------------------------`n"
+    Write-Host "----------------------------------"
 }
 
-Write-Host "🏁 All scans complete."
+Write-Host "`n🏁 All folder scans complete."
