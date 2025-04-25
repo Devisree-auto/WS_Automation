@@ -1,0 +1,86 @@
+# Paths
+$baseDir = "C:\Shared\Libs"
+$completedDir = "C:\Shared\Completed"
+$uaJar = "C:\Mend\unified-agent.jar"
+$configFile = "C:\Mend\wss-unified-agent.config"
+
+# Create completed folder if needed
+if (!(Test-Path -Path $completedDir)) {
+    New-Item -ItemType Directory -Path $completedDir
+}
+
+# --- Function to recursively unzip all .zip files ---
+function Extract-ZipRecursively {
+    param (
+        [string]$sourcePath
+    )
+
+    $stack = @($sourcePath)
+
+    while ($stack.Count -gt 0) {
+        $current = $stack[0]
+        $stack = $stack[1..($stack.Count - 1)]
+
+        # Find all ZIPs inside current path
+        $zips = Get-ChildItem -Path $current -Recurse -Filter *.zip -ErrorAction SilentlyContinue
+
+        foreach ($zip in $zips) {
+            $destination = Join-Path -Path $zip.Directory.FullName -ChildPath ($zip.BaseName + "_unzipped")
+            Expand-Archive -Path $zip.FullName -DestinationPath $destination -Force
+            Remove-Item -Path $zip.FullName -Force # Optional: delete original nested zip after extraction
+            $stack += $destination # Process this new folder as well
+        }
+    }
+}
+
+# --- Main Processing Loop ---
+Get-ChildItem -Path $baseDir | ForEach-Object {
+    $item = $_
+    $itemPath = $item.FullName
+    $itemName = $item.Name
+
+    # Case 1: ZIP File
+    if ($item.Extension -eq ".zip") {
+        Write-Host "📦 Found ZIP: $itemName"
+
+        $baseExtractPath = Join-Path -Path $baseDir -ChildPath ([System.IO.Path]::GetFileNameWithoutExtension($itemName))
+        Expand-Archive -Path $itemPath -DestinationPath $baseExtractPath -Force
+
+        # Recursively extract nested ZIPs
+        Extract-ZipRecursively -sourcePath $baseExtractPath
+
+        Write-Host "🔍 Scanning extracted: $baseExtractPath"
+        $scanCommand = "java -jar `"$uaJar`" -c `"$configFile`" -d `"$baseExtractPath`""
+        Invoke-Expression $scanCommand
+
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "✅ Scan successful for $itemName. Moving to completed."
+            Move-Item -Path $itemPath -Destination "$completedDir\$itemName"
+            Move-Item -Path $baseExtractPath -Destination "$completedDir\"
+        } else {
+            Write-Host "❌ Scan failed for $itemName. Leaving in place."
+        }
+    }
+
+    # Case 2: Folder
+    elseif ($item.PSIsContainer) {
+        Write-Host "🔍 Scanning folder: $itemName"
+
+        # Recursively extract nested ZIPs inside this folder
+        Extract-ZipRecursively -sourcePath $itemPath
+
+        $scanCommand = "java -jar `"$uaJar`" -c `"$configFile`" -d `"$itemPath`""
+        Invoke-Expression $scanCommand
+
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "✅ Scan successful for $itemName. Moving to completed."
+            Move-Item -Path $itemPath -Destination "$completedDir\$itemName"
+        } else {
+            Write-Host "❌ Scan failed for $itemName. Leaving in place."
+        }
+    }
+
+    Write-Host "----------------------------------`n"
+}
+
+Write-Host "🏁 All scans complete."
