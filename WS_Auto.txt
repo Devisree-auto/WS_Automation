@@ -1,0 +1,33 @@
+# Paths
+$baseDir = "C:\Shared\Libs"
+$completedDir = "C:\Shared\Completed"
+$uaJar = "C:\Mend\unified-agent.jar"
+$configFile = "C:\Mend\wss-unified-agent.config"
+
+# Create completed folder if it doesn't exist
+if (!(Test-Path -Path $completedDir)) {
+    New-Item -ItemType Directory -Path $completedDir
+}
+
+# Loop through each folder in the base directory
+Get-ChildItem -Path $baseDir -Directory | ForEach-Object {
+    $folder = $_.FullName
+    $folderName = $_.Name
+
+    Write-Host "🔍 Scanning: $folderName"
+
+    # Run Mend UA scan
+    $scanCommand = "java -jar `"$uaJar`" -c `"$configFile`" -d `"$folder`""
+    $result = Invoke-Expression $scanCommand
+
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "✅ Scan successful for $folderName. Moving to completed."
+        Move-Item -Path $folder -Destination "$completedDir\$folderName"
+    } else {
+        Write-Host "❌ Scan failed for $folderName. Leaving in place."
+    }
+
+    Write-Host "----------------------------------`n"
+}
+
+Write-Host "🏁 All scans complete."
