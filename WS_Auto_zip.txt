@@ -1,7 +1,7 @@
-$baseDir = "C:\Shared\Libs"
-$completedDir = "C:\Shared\Completed"
-$uaJar = "C:\Mend\unified-agent.jar"
-$configFile = "C:\Mend\wss-unified-agent.config"
+$baseDir = "Z:\SoftwareToBeReviewed\Scan"
+$completedDir = "Z:\SoftwareToBeReviewed\Completed"
+$uaJar = "C:\Karthick\Mend_UA\wss-unified-agent.jar"
+$configFile = "C:\Karthick\Mend_UA\ThirdPartyLibrary.config"
 
 function Extract-Zips-InFolder {
     param (
@@ -44,12 +44,21 @@ Get-ChildItem -Path $baseDir | ForEach-Object {
 
     if (Test-Path $workDir) {
         Extract-Zips-InFolder -targetFolder $workDir
-        java -jar $uaJar -c $configFile -d $workDir
+        java -jar $uaJar -c $configFile -d $workDir -product 'Third-Party-Library-Scan' -project $itemName -projectVersion 'Auto_Test'
 
         if ($LASTEXITCODE -eq 0) {
             if ($item.Extension -eq ".zip") {
+				$zipDest = Join-Path $completedDir $item.Name
+				if (Test-Path $zipDest) {
+					Remove-Item -Path $zipDest -Force
+				}
                 Move-Item $itemPath -Destination (Join-Path $completedDir $itemName) -Force
                 $folderToMove = Join-Path $baseDir ([System.IO.Path]::GetFileNameWithoutExtension($itemName))
+				$folderDest =Join-Path $completedDir $itemName
+				if (Test-Path $folderDest) {
+					Remove-Item -Path $folderDest -Recurse -Force
+					
+				}
                 if (Test-Path $folderToMove) {
                     Move-Item $folderToMove -Destination $completedDir -Force
                 }
